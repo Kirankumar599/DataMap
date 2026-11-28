@@ -55,10 +55,7 @@ public class ScanController {
         List<Integer> selectedColumns = parseColumnsParam(columnsParam);
         byte[] maskedBytes = scanService.maskFile(file, selectedColumns);
 
-        String originalName = file.getOriginalFilename();
-        if (originalName == null || originalName.isBlank()) {
-            originalName = "data.csv";
-        }
+        String originalName = ScanService.sanitizeFileName(file.getOriginalFilename());
         String downloadName = "masked_" + originalName;
 
         MediaType mediaType = originalName.toLowerCase().endsWith(".xlsx")

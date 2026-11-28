@@ -56,4 +56,14 @@ class MaskerTest {
         assertThat(Masker.maskPhone("12")).isEqualTo("XXXXXX0000");
         assertThat(Masker.maskEmail("notanemail")).isEqualTo("***@***");
     }
+
+    @Test
+    @DisplayName("Generic fallback masking protects unflagged columns safely")
+    void testGenericMasking() {
+        assertThat(Masker.maskGeneric(null)).isNull();
+        assertThat(Masker.maskGeneric("  ")).isEmpty();
+        assertThat(Masker.maskGeneric("Ravi")).isEqualTo("XXXX");
+        assertThat(Masker.maskGeneric("Kumar")).isEqualTo("XXXar");
+        assertThat(Masker.maskGeneric("Student1234")).isEqualTo("XXXXXXX1234");
+    }
 }

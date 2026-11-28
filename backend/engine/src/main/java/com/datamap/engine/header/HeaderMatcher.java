@@ -35,7 +35,8 @@ public class HeaderMatcher {
         ));
         keywordsMap.put(IdentifierType.PHONE, List.of(
             "phone", "mobile", "contact", "cell", "ph no", "telephone", "mobile number",
-            "phone number", "contact number", "cell number", "ph"
+            "phone number", "contact number", "cell number", "ph", "mob", "mob no",
+            "mobile no", "phone no", "contact no"
         ));
         keywordsMap.put(IdentifierType.EMAIL, List.of(
             "email", "e-mail", "mail address", "email address", "e mail", "mail", "user email"
@@ -82,9 +83,10 @@ public class HeaderMatcher {
             }
         }
 
-        // 2. Token-level exact match (e.g. "student_aadhaar_number" contains "aadhaar")
+        // 2. Token-level or phrase-boundary exact match (avoids substring false positives like "company" -> "pan")
+        String paddedNormalized = " " + normalized + " ";
         for (String kw : keywords) {
-            if (tokens.contains(kw) || normalized.contains(kw)) {
+            if (tokens.contains(kw) || (kw.contains(" ") && paddedNormalized.contains(" " + kw + " "))) {
                 return new HeaderMatchResult(type, true, false, kw, 1.0);
             }
         }

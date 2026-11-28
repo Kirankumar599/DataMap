@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * XLSX parser and exporter implemented using Apache POI.
@@ -29,14 +30,13 @@ import java.util.Map;
 @Component
 public class XlsxParser implements FileParser {
 
-    private final DataFormatter dataFormatter = new DataFormatter();
-
     @Override
     public ParsedFile parse(InputStream inputStream) {
         if (inputStream == null) {
             throw new DataMapException(ErrorCode.EMPTY_FILE, "File is empty or missing");
         }
 
+        DataFormatter dataFormatter = new DataFormatter();
         try (XSSFWorkbook workbook = new XSSFWorkbook(inputStream)) {
             int sheetCount = workbook.getNumberOfSheets();
             if (sheetCount == 0) {
@@ -61,7 +61,7 @@ public class XlsxParser implements FileParser {
             List<String> headers = new ArrayList<>();
             for (int c = 0; c < lastCellNum; c++) {
                 Cell cell = headerRow.getCell(c);
-                headers.add(getCellValueAsString(cell));
+                headers.add(getCellValueAsString(cell, dataFormatter));
             }
 
             if (headers.isEmpty() || headers.stream().allMatch(String::isBlank)) {
@@ -77,7 +77,7 @@ public class XlsxParser implements FileParser {
                 List<String> rowValues = new ArrayList<>();
                 for (int c = 0; c < lastCellNum; c++) {
                     Cell cell = row.getCell(c);
-                    rowValues.add(getCellValueAsString(cell));
+                    rowValues.add(getCellValueAsString(cell, dataFormatter));
                 }
                 rows.add(rowValues);
             }
@@ -96,24 +96,23 @@ public class XlsxParser implements FileParser {
 
     @Override
     public void writeMasked(
-        InputStream originalInputStream,
+        ParsedFile parsed,
         OutputStream outputStream,
-        Map<Integer, IdentifierType> columnsToMask
+        Map<Integer, IdentifierType> columnsToMask,
+        Set<Integer> genericMaskColumns
     ) {
-        ParsedFile parsed = parse(originalInputStream);
-
         try (XSSFWorkbook newWorkbook = new XSSFWorkbook()) {
             XSSFSheet sheet = newWorkbook.createSheet("Masked Data");
 
-            // Write header row
+            // Write sanitized header row
             Row headerRow = sheet.createRow(0);
             List<String> headers = parsed.headers();
             for (int c = 0; c < headers.size(); c++) {
                 Cell cell = headerRow.createCell(c, CellType.STRING);
-                cell.setCellValue(headers.get(c));
+                cell.setCellValue(FormulaSanitizer.sanitizeCell(headers.get(c)));
             }
 
-            // Write data rows
+            // Write data rows with masked columns and formula-injection neutralization
             List<List<String>> rows = parsed.rows();
             for (int r = 0; r < rows.size(); r++) {
                 Row dataRow = sheet.createRow(r + 1);
@@ -121,11 +120,15 @@ public class XlsxParser implements FileParser {
                 for (int c = 0; c < headers.size(); c++) {
                     String val = (c < rowValues.size()) ? rowValues.get(c) : "";
                     Cell cell = dataRow.createCell(c, CellType.STRING);
+                    String outVal;
                     if (columnsToMask != null && columnsToMask.containsKey(c)) {
-                        cell.setCellValue(Masker.mask(val, columnsToMask.get(c)));
+                        outVal = Masker.mask(val, columnsToMask.get(c));
+                    } else if (genericMaskColumns != null && genericMaskColumns.contains(c)) {
+                        outVal = Masker.maskGeneric(val);
                     } else {
-                        cell.setCellValue(val != null ? val : "");
+                        outVal = val != null ? val : "";
                     }
+                    cell.setCellValue(FormulaSanitizer.sanitizeCell(outVal));
                 }
             }
 
@@ -139,7 +142,7 @@ public class XlsxParser implements FileParser {
      * Reads cell value as plain string, avoiding scientific notation for large numbers
      * and preserving exact text formatting.
      */
-    private String getCellValueAsString(Cell cell) {
+    private String getCellValueAsString(Cell cell, DataFormatter dataFormatter) {
         if (cell == null) {
             return "";
         }

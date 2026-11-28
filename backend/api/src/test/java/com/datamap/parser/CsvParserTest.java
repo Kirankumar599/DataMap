@@ -61,4 +61,21 @@ class CsvParserTest {
         assertThat(result).contains("Name,Phone");
         assertThat(result).contains("Anil,XXXXXX3210");
     }
+
+    @Test
+    @DisplayName("Neutralizes CSV formula injection payloads starting with =, +, -, @")
+    void testFormulaInjectionNeutralization() {
+        String csv = "Name,Phone,Notes\n=CMD('calc'),9876543210,+1+1\n@SUM(A1),9876543211,-2+3";
+        ByteArrayInputStream input = new ByteArrayInputStream(csv.getBytes(StandardCharsets.UTF_8));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        parser.writeMasked(input, output, Map.of(1, IdentifierType.PHONE));
+
+        String result = output.toString(StandardCharsets.UTF_8);
+        assertThat(result).contains("'=CMD('calc')");
+        assertThat(result).contains("'+1+1");
+        assertThat(result).contains("'@SUM(A1)");
+        assertThat(result).contains("'-2+3");
+        assertThat(result).contains("XXXXXX3210");
+    }
 }

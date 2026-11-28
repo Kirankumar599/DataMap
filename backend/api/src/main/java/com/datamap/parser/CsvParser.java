@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * CSV parser and exporter implemented using Apache Commons CSV.
@@ -69,28 +70,35 @@ public class CsvParser implements FileParser {
 
     @Override
     public void writeMasked(
-        InputStream originalInputStream,
+        ParsedFile parsed,
         OutputStream outputStream,
-        Map<Integer, IdentifierType> columnsToMask
+        Map<Integer, IdentifierType> columnsToMask,
+        Set<Integer> genericMaskColumns
     ) {
-        ParsedFile parsed = parse(originalInputStream);
-
         try (OutputStreamWriter writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
              CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT)) {
 
-            // Write original headers
-            printer.printRecord(parsed.headers());
+            // Write sanitized headers
+            List<String> safeHeaders = new ArrayList<>(parsed.headers().size());
+            for (String h : parsed.headers()) {
+                safeHeaders.add(FormulaSanitizer.sanitizeCell(h));
+            }
+            printer.printRecord(safeHeaders);
 
-            // Write rows with selected columns masked
+            // Write rows with selected columns masked and formula payloads neutralized
             for (List<String> row : parsed.rows()) {
                 List<String> maskedRow = new ArrayList<>(row.size());
                 for (int i = 0; i < row.size(); i++) {
                     String val = row.get(i);
+                    String outVal;
                     if (columnsToMask != null && columnsToMask.containsKey(i)) {
-                        maskedRow.add(Masker.mask(val, columnsToMask.get(i)));
+                        outVal = Masker.mask(val, columnsToMask.get(i));
+                    } else if (genericMaskColumns != null && genericMaskColumns.contains(i)) {
+                        outVal = Masker.maskGeneric(val);
                     } else {
-                        maskedRow.add(val);
+                        outVal = val;
                     }
+                    maskedRow.add(FormulaSanitizer.sanitizeCell(outVal));
                 }
                 printer.printRecord(maskedRow);
             }

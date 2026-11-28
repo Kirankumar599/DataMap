@@ -71,5 +71,23 @@ class HeaderMatcherTest {
 
         HeaderMatchResult result2 = matcher.match("Invoice ID", IdentifierType.EMAIL);
         assertThat(result2.isMatch()).isFalse();
+
+        // Brief hard cases: misleading headers and substring traps
+        assertThat(matcher.match("Col_B", IdentifierType.AADHAAR).isMatch()).isFalse();
+        assertThat(matcher.match("ID", IdentifierType.AADHAAR).isMatch()).isFalse();
+        assertThat(matcher.match("Remarks", IdentifierType.EMAIL).isMatch()).isFalse();
+        assertThat(matcher.match("Company", IdentifierType.PAN).isMatch()).isFalse();
+        assertThat(matcher.match("Participant", IdentifierType.PAN).isMatch()).isFalse();
+        assertThat(matcher.match("Paragraph", IdentifierType.PHONE).isMatch()).isFalse();
+        assertThat(matcher.match("Student_Guid", IdentifierType.AADHAAR).isMatch()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Matches brief header variations: Adhar, Aadhar No, Mob no, E-mail")
+    void testBriefHeaderVariations() {
+        assertThat(matcher.match("Adhar", IdentifierType.AADHAAR).isMatch()).isTrue();
+        assertThat(matcher.match("Aadhar No", IdentifierType.AADHAAR).isMatch()).isTrue();
+        assertThat(matcher.match("Mob no", IdentifierType.PHONE).isMatch()).isTrue();
+        assertThat(matcher.match("E-mail", IdentifierType.EMAIL).isMatch()).isTrue();
     }
 }

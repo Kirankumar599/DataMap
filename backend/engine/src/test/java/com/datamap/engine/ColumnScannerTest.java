@@ -70,4 +70,29 @@ class ColumnScannerTest {
         assertThat(findings.stream().anyMatch(f -> f.columnIndex() == 1)).isFalse();
         assertThat(findings.stream().anyMatch(f -> f.columnIndex() == 6)).isFalse();
     }
+
+    @Test
+    @DisplayName("Hard cases: separates 91-prefixed phones from Aadhaar, ignores roll numbers and free-text emails")
+    void testHardNegativeSeparation() {
+        List<String> headers = List.of("Col_B", "Roll_No", "ID", "Remarks", "Product_Code");
+
+        List<List<String>> rows = List.of(
+            List.of("919876543210", "102345678901", "234567890120", "Contact ravi@gmail.com", "ABCDE1234F"),
+            List.of("918765432109", "102345678902", "345678901231", "Mail priya@yahoo.com", "XYZRM5678G"),
+            List.of("917654321098", "102345678903", "456789012342", "No email provided", "PQRST9012K"),
+            List.of("916543210987", "102345678904", "567890123453", "Send to admin@org.in", "LMNOP3456H")
+        );
+
+        List<ColumnFinding> findings = scanner.scan(headers, rows);
+
+        // Col_B (index 0) contains 91-prefixed 10-digit mobiles -> must resolve to PHONE, not AADHAAR
+        ColumnFinding colB = findings.stream().filter(f -> f.columnIndex() == 0).findFirst().orElseThrow();
+        assertThat(colB.type()).isEqualTo(IdentifierType.PHONE);
+
+        // Roll_No (starts with 1), ID (random 12-digit numbers failing Verhoeff), Remarks (free text), Product_Code (invalid PAN 4th char)
+        assertThat(findings.stream().anyMatch(f -> f.columnIndex() == 1)).isFalse();
+        assertThat(findings.stream().anyMatch(f -> f.columnIndex() == 2)).isFalse();
+        assertThat(findings.stream().anyMatch(f -> f.columnIndex() == 3)).isFalse();
+        assertThat(findings.stream().anyMatch(f -> f.columnIndex() == 4)).isFalse();
+    }
 }

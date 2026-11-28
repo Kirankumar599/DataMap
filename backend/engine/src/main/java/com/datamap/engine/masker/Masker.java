@@ -95,4 +95,23 @@ public final class Masker {
         char firstChar = local.charAt(0);
         return firstChar + "***" + domain;
     }
+
+    /**
+     * Conservative fallback masking for manually selected unflagged columns.
+     * Preserves no raw characters for short values and only up to the last 2 characters for longer values.
+     */
+    public static String maskGeneric(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (trimmed.length() <= 4) {
+            return "XXXX";
+        }
+        int visibleSuffix = trimmed.length() >= 8 ? 4 : 2;
+        return "X".repeat(trimmed.length() - visibleSuffix) + trimmed.substring(trimmed.length() - visibleSuffix);
+    }
 }

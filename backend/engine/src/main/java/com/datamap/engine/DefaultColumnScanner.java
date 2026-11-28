@@ -154,15 +154,30 @@ public class DefaultColumnScanner implements ColumnScanner {
     }
 
     private boolean isHigherPriority(CandidateFinding candidate, CandidateFinding currentBest) {
-        // Higher confidence wins
-        if (candidate.confidence().ordinal() < currentBest.confidence().ordinal()) {
-            return true;
+        int candidateRank = confidenceRank(candidate.confidence());
+        int currentRank = confidenceRank(currentBest.confidence());
+        if (candidateRank != currentRank) {
+            return candidateRank > currentRank;
         }
-        if (candidate.confidence().ordinal() > currentBest.confidence().ordinal()) {
-            return false;
+        if (Double.compare(candidate.matchRate(), currentBest.matchRate()) != 0) {
+            return candidate.matchRate() > currentBest.matchRate();
         }
-        // Higher match rate wins
-        return candidate.matchRate() > currentBest.matchRate();
+        // Tie-breaker: prefer PHONE over weak-checksum AADHAAR (e.g., 91-prefixed 12-digit numbers)
+        if (currentBest.type() == IdentifierType.AADHAAR && candidate.type() == IdentifierType.PHONE) {
+            double cs = currentBest.checksumRate() != null ? currentBest.checksumRate() : 0.0;
+            if (cs < ConfidenceScorer.CHECKSUM_STRONG_THRESHOLD) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int confidenceRank(com.datamap.engine.enums.Confidence confidence) {
+        return switch (confidence) {
+            case HIGH -> 3;
+            case MEDIUM -> 2;
+            case LOW -> 1;
+        };
     }
 
     private record CandidateFinding(

@@ -40,6 +40,8 @@ class EmailDetectorTest {
         assertThat(detector.matchesFormat("user..name@gmail.com")).isFalse();
         assertThat(detector.matchesFormat(".leadingdot@gmail.com")).isFalse();
         assertThat(detector.matchesFormat("trailingdot.@gmail.com")).isFalse();
+        // Hard negative: emails inside free-text notes should not classify as pure email cells
+        assertThat(detector.matchesFormat("Please email ravi.kumar@gmail.com for receipts")).isFalse();
         assertThat(detector.matchesFormat(null)).isFalse();
         assertThat(detector.matchesFormat("")).isFalse();
         assertThat(detector.matchesFormat("   ")).isFalse();

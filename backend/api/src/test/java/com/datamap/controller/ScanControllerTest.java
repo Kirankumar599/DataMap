@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -144,5 +145,18 @@ class ScanControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].fileName").value("sample.csv"))
             .andExpect(jsonPath("$[0].rowCount").value(10));
+    }
+
+    @Test
+    @DisplayName("POST /api/scans returns 400 FILE_TOO_LARGE when upload exceeds 10MB")
+    void testScanFileTooLarge() throws Exception {
+        when(scanService.scanFile(any()))
+            .thenThrow(new MaxUploadSizeExceededException(10L * 1024 * 1024));
+
+        MockMultipartFile file = new MockMultipartFile("file", "big.csv", "text/csv", "a,b\n1,2".getBytes());
+
+        mockMvc.perform(multipart("/api/scans").file(file))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("FILE_TOO_LARGE"));
     }
 }

@@ -69,6 +69,27 @@ class XlsxParserTest {
         assertThat(maskedParsed.rows().get(0).get(0)).isEqualTo("XXXX-XXXX-0124");
     }
 
+    @Test
+    @DisplayName("Rejects multi-sheet XLSX workbooks and neutralizes formula payloads on export")
+    void testMultiSheetRejectedAndFormulaNeutralized() throws IOException {
+        try (XSSFWorkbook multiWb = new XSSFWorkbook(); ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            multiWb.createSheet("Sheet1");
+            multiWb.createSheet("Sheet2");
+            multiWb.write(bos);
+
+            assertThatThrownBy(() -> parser.parse(new ByteArrayInputStream(bos.toByteArray())))
+                .isInstanceOf(DataMapException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.PARSE_FAILED);
+        }
+
+        byte[] formulaBytes = createSampleWorkbook("Formula", "=HYPERLINK(\"http://evil.test\")");
+        ByteArrayOutputStream maskedOut = new ByteArrayOutputStream();
+        parser.writeMasked(new ByteArrayInputStream(formulaBytes), maskedOut, Map.of());
+
+        ParsedFile reparsed = parser.parse(new ByteArrayInputStream(maskedOut.toByteArray()));
+        assertThat(reparsed.rows().get(0).get(0)).startsWith("'=HYPERLINK");
+    }
+
     private byte[] createSampleWorkbook(String header, String cellValue) throws IOException {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
             XSSFSheet sheet = wb.createSheet("TestSheet");

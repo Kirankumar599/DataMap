@@ -132,6 +132,36 @@ class ScanServiceTest {
             .hasFieldOrPropertyWithValue("errorCode", ErrorCode.PARSE_FAILED);
     }
 
+    @Test
+    @DisplayName("Rejects legacy .xls, rejects files > 10MB, sanitizes paths, and generically masks unflagged columns")
+    void testPrivacyAndManualColumnEdgeCases() {
+        MockMultipartFile xlsFile = new MockMultipartFile(
+            "file", "legacy.xls", "application/vnd.ms-excel", new byte[]{1, 2, 3}
+        );
+        assertThatThrownBy(() -> scanService.scanFile(xlsFile))
+            .isInstanceOf(DataMapException.class)
+            .hasFieldOrPropertyWithValue("errorCode", ErrorCode.UNSUPPORTED_FILE_TYPE);
+
+        byte[] oversized = new byte[(int) ScanService.MAX_FILE_SIZE_BYTES + 1];
+        MockMultipartFile largeFile = new MockMultipartFile("file", "huge.csv", "text/csv", oversized);
+        assertThatThrownBy(() -> scanService.scanFile(largeFile))
+            .isInstanceOf(DataMapException.class)
+            .hasFieldOrPropertyWithValue("errorCode", ErrorCode.FILE_TOO_LARGE);
+
+        String csv = "Student Name,City\nRavi Kumar,Mysuru";
+        MockMultipartFile pathFile = new MockMultipartFile(
+            "file", "C:\\temp\\secret\\students.csv", "text/csv", csv.getBytes(StandardCharsets.UTF_8)
+        );
+        ScanResponseDto scanned = scanService.scanFile(pathFile);
+        assertThat(scanned.fileName()).isEqualTo("students.csv");
+
+        byte[] masked = scanService.maskFile(pathFile, List.of(0));
+        String maskedText = new String(masked, StandardCharsets.UTF_8);
+        assertThat(maskedText).doesNotContain("Ravi Kumar");
+        assertThat(maskedText).doesNotContain("XXXX-XXXX-");
+        assertThat(maskedText).contains("XXXXXXumar");
+    }
+
     private byte[] buildXlsx(String header, String val) throws IOException {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
             XSSFSheet sheet = wb.createSheet("Data");

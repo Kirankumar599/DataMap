@@ -60,8 +60,9 @@ The Engine is completely decoupled from Spring Boot, HTTP, Repositories, and Dat
 ## 2. Privacy & Security Safeguards
 
 - **Metadata Only Persistence**: The database strictly records file metrics (`id`, `file_name`, `file_type`, `row_count`, `column_count`, `flagged_columns`, `duration_ms`, `match_rate`).
-- **Never Store Personal Data**: Raw cell values, uploaded files, complete parsed rows, and unmasked identifiers are **NEVER** stored in the database or written to temporary server files.
+- **Never Store Personal Data**: Raw cell values, uploaded files, complete parsed rows, and unmasked identifiers are **NEVER** stored in the database or written to temporary server files (`spring.servlet.multipart.file-size-threshold=12MB`, `XSSFWorkbook` in-memory export).
 - **Masked Previews Only**: Scan results return masked samples (e.g. `XXXX-XXXX-0124`, `XXXXXX234F`, `XXXXXX3210`, `r***@gmail.com`).
+- **Formula Injection Neutralization**: Exported CSV and XLSX cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are prefixed with `'` on export.
 - **No Request-Body Logging**: SQL query parameter logging and HTTP body logging are disabled.
 - **Upload Limit**: Restricted to a maximum of 10 MB per upload.
 
@@ -151,15 +152,41 @@ The application uses PostgreSQL with sensible defaults, configurable via environ
 
 ### Run Tests
 ```powershell
-cd c:\Data-Map\backend
 .\mvnw.cmd clean test
 ```
-*(All 52 tests across both modules run and validate the complete pipeline).*
+*(All 62 tests across both modules — 38 engine unit tests and 24 API/integration/benchmark tests — run and validate the complete pipeline).*
 
 ### Run the Application
 ```powershell
-cd c:\Data-Map\backend
 .\mvnw.cmd spring-boot:run -pl api
 ```
 
-The server starts on `http://localhost:8080` with CORS enabled for `http://localhost:5173`.
+For an offline/demo run without PostgreSQL (uses in-memory H2 in PostgreSQL mode):
+```powershell
+.\mvnw.cmd spring-boot:run -pl api "-Dspring-boot.run.profiles=demo"
+```
+
+The server starts on `http://localhost:8080` with CORS enabled for `http://localhost:5173`, `http://localhost:3000`, and `http://127.0.0.1:5173` (configurable via `DATAMAP_CORS_ORIGINS`). OpenAPI docs are available at `http://localhost:8080/swagger-ui.html` (`/v3/api-docs`).
+
+---
+
+## 7. Confidence Thresholds & Synthetic Benchmark Results
+
+### Confidence Scoring Thresholds (`ConfidenceScorer`)
+- **Sampler**: Up to `200` non-empty rows sampled evenly across each column.
+- **Header Fuzzy Threshold**: Levenshtein similarity `>= 0.80` (`HeaderMatcher`), using token/phrase boundary matching.
+- **Value Match Thresholds**: `STRONG_MATCH_THRESHOLD = 0.80`, `WEAK_MATCH_THRESHOLD = 0.30`.
+- **Aadhaar Checksum Thresholds**: `CHECKSUM_STRONG_THRESHOLD = 0.80`, `CHECKSUM_FAIL_THRESHOLD = 0.50`; columns with `matchRate >= 0.80`, `checksumRate < 0.20`, and no header match are suppressed to filter random 12-digit IDs and `91`-prefixed phone numbers.
+
+### Synthetic Benchmark (Synthetic Data Only)
+Evaluated across 19 synthetic CSV/XLSX spreadsheets (plus empty/header-only edge cases) including messy headers, formatting variants, hard negatives (`91`-prefixed phones, roll numbers, random 12-digit IDs, PAN-like serial codes, emails inside free-text notes), and a `9.11 MB` (`9,551,727` bytes) stress file (`SyntheticBenchmarkTest`):
+
+| Type | Planted | Found | False Flags | Precision | Recall |
+|---|---|---|---|---|---|
+| `AADHAAR` | 10 | 10 | 0 | 100.0% | 100.0% |
+| `PAN` | 9 | 9 | 0 | 100.0% | 100.0% |
+| `PHONE` | 14 | 14 | 0 | 100.0% | 100.0% |
+| `EMAIL` | 13 | 13 | 0 | 100.0% | 100.0% |
+
+- **Near-10MB (`9.11 MB` CSV) parse + scan time**: `238 ms`.
+- **Demo sample file**: `../samples/college_admissions.xlsx` (synthetic data).

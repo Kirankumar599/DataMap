@@ -7,6 +7,7 @@ import com.datamap.dto.ScanSummaryDto;
 import com.datamap.engine.ColumnScanner;
 import com.datamap.engine.enums.Confidence;
 import com.datamap.engine.enums.IdentifierType;
+import com.datamap.engine.header.HeaderMatcher;
 import com.datamap.engine.model.ColumnFinding;
 import com.datamap.entity.ColumnFindingEntity;
 import com.datamap.entity.ScanEntity;
@@ -24,10 +25,11 @@ import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -42,6 +44,7 @@ public class ScanService {
     private final ParserFactory parserFactory;
     private final ColumnScanner columnScanner;
     private final ScanRepository scanRepository;
+    private final HeaderMatcher headerMatcher = new HeaderMatcher();
 
     public ScanService(
         ParserFactory parserFactory,
@@ -60,9 +63,9 @@ public class ScanService {
     public ScanResponseDto scanFile(MultipartFile file) {
         validateFile(file);
 
-        String originalFilename = file.getOriginalFilename();
-        FileParser parser = parserFactory.getParser(originalFilename);
-        String fileType = getFileType(originalFilename);
+        String safeFilename = sanitizeFileName(file.getOriginalFilename());
+        FileParser parser = parserFactory.getParser(safeFilename);
+        String fileType = getFileType(safeFilename);
 
         long startTime = System.currentTimeMillis();
 
@@ -89,7 +92,7 @@ public class ScanService {
         // Persist audit metadata ONLY - NEVER persist raw values or samples
         ScanEntity scanEntity = new ScanEntity(
             scanId,
-            originalFilename,
+            safeFilename,
             fileType,
             parsed.rowCount(),
             parsed.columnCount(),
@@ -129,7 +132,7 @@ public class ScanService {
 
         return new ScanResponseDto(
             scanId,
-            originalFilename,
+            safeFilename,
             parsed.rowCount(),
             parsed.columnCount(),
             summary,
@@ -148,8 +151,8 @@ public class ScanService {
             throw new DataMapException(ErrorCode.PARSE_FAILED, "No columns selected for masking");
         }
 
-        String originalFilename = file.getOriginalFilename();
-        FileParser parser = parserFactory.getParser(originalFilename);
+        String safeFilename = sanitizeFileName(file.getOriginalFilename());
+        FileParser parser = parserFactory.getParser(safeFilename);
 
         ParsedFile parsed;
         try {
@@ -170,6 +173,7 @@ public class ScanService {
         // Run scanner to resolve column identifier types
         List<ColumnFinding> findings = columnScanner.scan(parsed.headers(), parsed.rows());
         Map<Integer, IdentifierType> columnsToMask = new HashMap<>();
+        Set<Integer> genericMaskColumns = new HashSet<>();
 
         for (ColumnFinding finding : findings) {
             if (selectedColumnIndexes.contains(finding.columnIndex())) {
@@ -177,22 +181,57 @@ public class ScanService {
             }
         }
 
-        // For any column manually selected that was not in findings, determine best match
+        // For any manually selected column not in findings, infer from header or fall back to conservative generic masking
         for (Integer selectedIdx : selectedColumnIndexes) {
             if (!columnsToMask.containsKey(selectedIdx)) {
-                // Default to PHONE or EMAIL or AADHAAR based on header or default to AADHAAR
-                columnsToMask.put(selectedIdx, IdentifierType.AADHAAR);
+                IdentifierType inferred = inferTypeFromHeader(parsed.headers().get(selectedIdx));
+                if (inferred != null) {
+                    columnsToMask.put(selectedIdx, inferred);
+                } else {
+                    genericMaskColumns.add(selectedIdx);
+                }
             }
         }
 
         try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-            parser.writeMasked(file.getInputStream(), bos, columnsToMask);
+            parser.writeMasked(parsed, bos, columnsToMask, genericMaskColumns);
             return bos.toByteArray();
         } catch (DataMapException e) {
             throw e;
         } catch (Exception e) {
             throw new DataMapException(ErrorCode.PARSE_FAILED, "Failed to generate masked file: " + e.getMessage());
         }
+    }
+
+    private IdentifierType inferTypeFromHeader(String header) {
+        if (header == null || header.isBlank()) {
+            return null;
+        }
+        for (IdentifierType type : IdentifierType.values()) {
+            if (headerMatcher.match(header, type).isMatch()) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Strips directory paths, quotes, and control characters from uploaded filenames.
+     */
+    public static String sanitizeFileName(String originalFilename) {
+        if (originalFilename == null || originalFilename.isBlank()) {
+            return "data.csv";
+        }
+        String baseName = originalFilename.replace('\\', '/');
+        int lastSlash = baseName.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            baseName = baseName.substring(lastSlash + 1);
+        }
+        String sanitized = baseName.replaceAll("[\"\\r\\n\\t]", "").trim();
+        if (sanitized.isEmpty()) {
+            return "data.csv";
+        }
+        return sanitized.length() > 200 ? sanitized.substring(sanitized.length() - 200) : sanitized;
     }
 
     /**

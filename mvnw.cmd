@@ -1,7 +1,3 @@
 @echo off
-set "MAVEN_CMD=C:\Program Files\JetBrains\IntelliJ IDEA Community Edition 2025.2.6.2\plugins\maven\lib\maven3\bin\mvn.cmd"
-if exist "%MAVEN_CMD%" (
-    "%MAVEN_CMD%" %*
-) else (
-    mvn %*
-)
+call "%~dp0backend\mvnw.cmd" -f "%~dp0backend\pom.xml" %*
+exit /b %ERRORLEVEL%
